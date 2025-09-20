@@ -49,7 +49,7 @@ lookback = st.sidebar.slider("Lookback window (days)", 30, 120, 60)
 # -------------------------------
 # Download data
 # -------------------------------
-st.write(f"### Data for {ticker}")
+st.write(f"### Past five days stock information for {ticker}")
 df = yf.download(ticker, start=start_date, end=end_date)
 if df.empty:
     st.error("No data found for this ticker/date range.")
@@ -141,3 +141,4 @@ if st.sidebar.button("Train Model"):
     ax.set_title(f"Next 5-Day Forecast for {ticker}")
     ax.legend()
     st.pyplot(fig)
+
