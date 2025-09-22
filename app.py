@@ -142,40 +142,7 @@ if st.sidebar.button("Run Prediction"):
     ax.legend()
     st.pyplot(fig)
 
-    # -------------------------------
-    # 6. Explainable AI
-    # -------------------------------
-import openai
-import streamlit as st
 
-# set your API key in Streamlit secrets (safer than hardcoding)
-openai.api_key = st.secrets["OPENAI_API_KEY"]
-
-def generate_explanation(ticker, preds, actuals):
-    prompt = f"""
-    The model predicted the next 5 closing prices for {ticker}.
-    Predictions: {list(preds)}
-    Actual recent closes: {list(actuals)}
-
-    Write a concise, trader-friendly explanation of the predictions 
-    and possible reasons for deviation, in plain English.
-    """
-
-    response = openai.ChatCompletion.create(
-        model="gpt-4o-mini",   # lightweight model for app use
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=200
-    )
-    return response.choices[0].message["content"]
-
-# after your plotting section:
-st.subheader("AI-powered Narrative (ChatGPT)")
-try:
-    explanation = generate_explanation(ticker, pred_df["Close"].values, df["Close"].tail(5).values)
-    st.info(explanation)
-except Exception as e:
-    st.warning("Could not generate ChatGPT explanation.")
-    st.text(str(e))
 
     # -------------------------------
     # 7. Narrative
@@ -186,6 +153,7 @@ except Exception as e:
         "A rising forecast compared to the historical trend suggests potential bullish momentum. "
         "Use forecasts with caution as they depend heavily on recent price patterns."
     )
+
 
 
 
