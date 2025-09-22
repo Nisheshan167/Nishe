@@ -145,15 +145,22 @@ if st.sidebar.button("Run Prediction"):
     # -------------------------------
     # 6. Explainable AI
     # -------------------------------
-    st.subheader("Explainable AI (SHAP)")
-    try:
-        explainer = shap.Explainer(model, X_test[:50])  # small sample for speed
-        shap_values = explainer(X_test[:50])
-        shap.plots.bar(shap_values, show=False)
-        st.pyplot(bbox_inches="tight")
-    except Exception as e:
-        st.warning("⚠️ SHAP explanation not available.")
-        st.text(str(e))
+    st.subheader("Explainable AI (SHAP Feature Importance)")
+try:
+    # Use a small background sample for SHAP
+    background = seq[:50] if seq.shape[0] > 50 else seq
+
+    explainer = shap.Explainer(model, background)
+    shap_values = explainer(seq)
+
+    # Bar plot for feature importance
+    fig = plt.figure()
+    shap.summary_plot(shap_values, seq, plot_type="bar", show=False)
+    st.pyplot(fig)
+
+except Exception as e:
+    st.warning("⚠️ SHAP explanation not available in this environment.")
+    st.text(str(e))
 
     # -------------------------------
     # 7. Narrative
@@ -164,4 +171,5 @@ if st.sidebar.button("Run Prediction"):
         "A rising forecast compared to the historical trend suggests potential bullish momentum. "
         "Use forecasts with caution as they depend heavily on recent price patterns."
     )
+
 
