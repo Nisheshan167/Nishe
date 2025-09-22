@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense
+from tensorflow.keras.layers import LSTM, Dense,Dropout
 from tensorflow.keras.callbacks import EarlyStopping
 from datetime import datetime
 import shap
@@ -15,28 +15,25 @@ import os
 # -------------------------------
 # 1. Build Model Architecture
 # -------------------------------
-def build_close_only_model(lookback=60):
+
+def build_final_model(lookback=60, n_features=1):
     model = Sequential([
-        LSTM(50, return_sequences=True, input_shape=(lookback, 1)),
-        LSTM(50, return_sequences=False),
-        Dense(25, activation="relu"),
-        Dense(1)
+        LSTM(64, return_sequences=True, input_shape=(lookback, n_features)),
+        LSTM(64, return_sequences=False),
+        Dense(128, activation="relu"),
+        Dense(1)   # final output for Close price
     ])
     model.compile(optimizer="adam", loss="mse")
     return model
 
+
 @st.cache_resource
-def load_trained_model(weights_path="lstmN.weights.h5", lookback=60):
-    model = build_close_only_model(lookback)
-    if os.path.exists(weights_path):
-        try:
-            model.load_weights(weights_path)
-            st.success(f"Loaded trained weights from {weights_path}")
-        except Exception as e:
-            st.warning(f"⚠️ Could not load weights, using random init. Error: {e}")
-    else:
-        st.warning("⚠️ No weights file found. Using random initialized weights.")
+def load_trained_model(weights_path="lstmN.weights.h5"):
+    model = build_final_model()
+    model.load_weights(weights_path)
     return model
+
+model = load_trained_model()
 
 # -------------------------------
 # 2. Helper Functions
@@ -167,3 +164,4 @@ if st.sidebar.button("Run Prediction"):
         "A rising forecast compared to the historical trend suggests potential bullish momentum. "
         "Use forecasts with caution as they depend heavily on recent price patterns."
     )
+
