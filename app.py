@@ -145,29 +145,36 @@ if st.sidebar.button("Run Prediction"):
     # -------------------------------
     # 6. Explainable AI
     # -------------------------------
-st.subheader("Explainable AI (SHAP Feature Importance)")
+import openai
+import streamlit as st
+
+# set your API key in Streamlit secrets (safer than hardcoding)
+openai.api_key = st.secrets["OPENAI_API_KEY"]
+
+def generate_explanation(ticker, preds, actuals):
+    prompt = f"""
+    The model predicted the next 5 closing prices for {ticker}.
+    Predictions: {list(preds)}
+    Actual recent closes: {list(actuals)}
+
+    Write a concise, trader-friendly explanation of the predictions 
+    and possible reasons for deviation, in plain English.
+    """
+
+    response = openai.ChatCompletion.create(
+        model="gpt-4o-mini",   # lightweight model for app use
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=200
+    )
+    return response.choices[0].message["content"]
+
+# after your plotting section:
+st.subheader("AI-powered Narrative (ChatGPT)")
 try:
-    # Build last sequence for explanation (shape: 1, lookback, 1)
-    last_window = scaled_data[-lookback:]
-    seq = np.expand_dims(last_window, axis=0)
-
-    # Background = random sample from training set
-    background = X_train[np.random.choice(len(X_train), size=50, replace=False)]
-
-    explainer = shap.Explainer(model, background)
-    shap_values = explainer(seq)
-
-    # Use matplotlib figure to render in Streamlit
-    fig, ax = plt.subplots()
-    shap.summary_plot(shap_values, seq, plot_type="bar", show=False)
-    st.pyplot(fig)
-
+    explanation = generate_explanation(ticker, pred_df["Close"].values, df["Close"].tail(5).values)
+    st.info(explanation)
 except Exception as e:
-    st.warning("⚠️ SHAP explanation not available in this environment.")
-    st.text(str(e))
-
-except Exception as e:
-    st.warning("⚠️ SHAP explanation not available in this environment.")
+    st.warning("Could not generate ChatGPT explanation.")
     st.text(str(e))
 
     # -------------------------------
@@ -179,6 +186,7 @@ except Exception as e:
         "A rising forecast compared to the historical trend suggests potential bullish momentum. "
         "Use forecasts with caution as they depend heavily on recent price patterns."
     )
+
 
 
 
