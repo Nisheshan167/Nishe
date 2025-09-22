@@ -145,15 +145,19 @@ if st.sidebar.button("Run Prediction"):
     # -------------------------------
     # 6. Explainable AI
     # -------------------------------
-    st.subheader("Explainable AI (SHAP Feature Importance)")
+st.subheader("Explainable AI (SHAP Feature Importance)")
 try:
-    # Use a small background sample for SHAP
-    background = seq[:50] if seq.shape[0] > 50 else seq
+    # Build last sequence (same input shape as model expects)
+    last_window = scaled_data[-lookback:]
+    seq = np.expand_dims(last_window, axis=0)  # (1, lookback, 1)
+
+    # Use a background sample for SHAP
+    background = X_train[np.random.choice(len(X_train), size=50, replace=False)]
 
     explainer = shap.Explainer(model, background)
     shap_values = explainer(seq)
 
-    # Bar plot for feature importance
+    # Plot feature importance
     fig = plt.figure()
     shap.summary_plot(shap_values, seq, plot_type="bar", show=False)
     st.pyplot(fig)
@@ -171,5 +175,6 @@ except Exception as e:
         "A rising forecast compared to the historical trend suggests potential bullish momentum. "
         "Use forecasts with caution as they depend heavily on recent price patterns."
     )
+
 
 
