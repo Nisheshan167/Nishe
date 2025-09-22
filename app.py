@@ -1,92 +1,169 @@
+# app.py
+import streamlit as st
+import yfinance as yf
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense
 from tensorflow.keras.callbacks import EarlyStopping
-from sklearn.preprocessing import MinMaxScaler
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
+from datetime import datetime
+import shap
+import os
 
-# ================================
-# 1. Prepare Data
-# ================================
-values = data[['Close']].values   # only close price
+# -------------------------------
+# 1. Build Model Architecture
+# -------------------------------
+def build_close_only_model(lookback=60):
+    model = Sequential([
+        LSTM(50, return_sequences=True, input_shape=(lookback, 1)),
+        LSTM(50, return_sequences=False),
+        Dense(25, activation="relu"),
+        Dense(1)
+    ])
+    model.compile(optimizer="adam", loss="mse")
+    return model
+
+@st.cache_resource
+def load_trained_model(weights_path="lstmN.weights.h5", lookback=60):
+    model = build_close_only_model(lookback)
+    if os.path.exists(weights_path):
+        try:
+            model.load_weights(weights_path)
+            st.success(f"Loaded trained weights from {weights_path}")
+        except Exception as e:
+            st.warning(f"⚠️ Could not load weights, using random init. Error: {e}")
+    else:
+        st.warning("⚠️ No weights file found. Using random initialized weights.")
+    return model
+
+# -------------------------------
+# 2. Helper Functions
+# -------------------------------
+def create_sequences(data, lookback=60):
+    X, y = [], []
+    for i in range(lookback, len(data)):
+        X.append(data[i-lookback:i, 0])
+        y.append(data[i, 0])
+    return np.array(X), np.array(y)
+
+def forecast_next_days(model, scaler, df, lookback=60, horizon=5):
+    last_window = df['Close'].values[-lookback:].reshape(-1,1)
+    last_scaled = scaler.transform(last_window)
+
+    predictions, dates = [], []
+    current_input = last_scaled.copy()
+
+    for i in range(horizon):
+        X = current_input.reshape(1, lookback, 1)
+        pred_scaled = model.predict(X, verbose=0)
+        pred_price = scaler.inverse_transform(pred_scaled)[0,0]
+        predictions.append(pred_price)
+        dates.append(df.index[-1] + pd.tseries.offsets.BDay(i+1))
+
+        # update input
+        current_input = np.append(current_input[1:], pred_scaled).reshape(-1,1)
+
+    return pd.DataFrame({"Date": dates, "Predicted Close": predictions})
+
+# -------------------------------
+# 3. Streamlit Layout
+# -------------------------------
+st.set_page_config(page_title="Stock Price Prediction (LSTM)", layout="wide")
+st.title("📈 LSTM Stock Price Prediction (Close Only)")
+
+# Sidebar
+st.sidebar.header("User Input")
+ticker = st.sidebar.text_input("Ticker", "AAPL")
+start_date = st.sidebar.date_input("Start Date", datetime(2015,1,1))
+end_date = st.sidebar.date_input("End Date", datetime.today())
+lookback = st.sidebar.slider("Lookback (days)", 30, 120, 60)
+horizon = 5
+
+# Load Data
+data = yf.download(ticker, start=start_date, end=end_date, auto_adjust=True)
+if data.empty:
+    st.error("No data found for this ticker/date range.")
+    st.stop()
+
+st.subheader(f"Raw Data for {ticker}")
+st.write(data.tail())
+
+# Scale
+values = data[['Close']].values
 scaler = MinMaxScaler(feature_range=(0,1))
 scaled_data = scaler.fit_transform(values)
 
-training_data_len = int(len(values) * 0.8)
-train_data = scaled_data[:training_data_len]
-test_data  = scaled_data[training_data_len-60:]
+# Sequences
+X, y = create_sequences(scaled_data, lookback)
+X = np.reshape(X, (X.shape[0], X.shape[1], 1))
 
-# Training sequences
-X_train, y_train = [], []
-for i in range(60, len(train_data)):
-    X_train.append(train_data[i-60:i, 0])
-    y_train.append(train_data[i, 0])
+train_size = int(len(X)*0.8)
+X_train, X_test = X[:train_size], X[train_size:]
+y_train, y_test = y[:train_size], y[train_size:]
 
-X_train, y_train = np.array(X_train), np.array(y_train)
-X_train = np.reshape(X_train, (X_train.shape[0], X_train.shape[1], 1))
+# Load Model
+model = load_trained_model()
 
-# Test sequences
-X_test, y_test = [], values[training_data_len:]
-for i in range(60, len(test_data)):
-    X_test.append(test_data[i-60:i, 0])
+# -------------------------------
+# 4. Prediction & Backtest
+# -------------------------------
+if st.sidebar.button("Run Prediction"):
+    st.subheader("Backtest on Test Data")
 
-X_test = np.array(X_test)
-X_test = np.reshape(X_test, (X_test.shape[0], X_test.shape[1], 1))
+    preds = model.predict(X_test)
+    preds_rescaled = scaler.inverse_transform(preds)
+    y_test_rescaled = scaler.inverse_transform(y_test.reshape(-1,1))
 
-# ================================
-# 2. Build Model
-# ================================
-model = Sequential([
-    LSTM(50, return_sequences=True, input_shape=(X_train.shape[1], 1)),
-    LSTM(50, return_sequences=False),
-    Dense(25, activation="relu"),
-    Dense(1)
-])
-model.compile(optimizer="adam", loss="mse")
+    test_dates = data.index[-len(y_test):]
+    test_df = pd.DataFrame({"Date": test_dates, "Actual": y_test_rescaled.flatten(),
+                            "Predicted": preds_rescaled.flatten()})
+    test_df = test_df.set_index("Date")
 
-# ================================
-# 3. Train
-# ================================
-early_stop = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+    # Plot
+    fig, ax = plt.subplots(figsize=(12,6))
+    ax.plot(data.index, data['Close'], label="Historical Close", color="green")
+    ax.plot(test_df.index, test_df["Actual"], label="Actual Test", color="blue")
+    ax.plot(test_df.index, test_df["Predicted"], label="Predicted", color="red")
+    ax.set_title(f"{ticker} Close Price Prediction")
+    ax.set_xlabel("Date"); ax.set_ylabel("Price"); ax.legend()
+    st.pyplot(fig)
 
-history = model.fit(
-    X_train, y_train,
-    epochs=100,
-    batch_size=32,
-    validation_split=0.1,
-    callbacks=[early_stop],
-    verbose=1
-)
+    # -------------------------------
+    # 5. Forecast Future
+    # -------------------------------
+    st.subheader(f"{horizon}-Day Forecast")
+    forecast_df = forecast_next_days(model, scaler, data, lookback, horizon)
+    st.write(forecast_df)
 
-# ================================
-# 4. Save trained weights
-# ================================
-model.save_weights("lstmN.weights.h5")
-print("✅ Weights saved as lstmN.weights.h5")
+    fig, ax = plt.subplots(figsize=(12,6))
+    ax.plot(data.index, data['Close'], label="History")
+    ax.plot(forecast_df["Date"], forecast_df["Predicted Close"],
+            marker="o", label="Forecast")
+    ax.set_title(f"Next {horizon}-Day Forecast for {ticker}")
+    ax.legend()
+    st.pyplot(fig)
 
-# ================================
-# 5. Make Predictions
-# ================================
-predictions = model.predict(X_test)
-predictions = scaler.inverse_transform(predictions)
+    # -------------------------------
+    # 6. Explainable AI
+    # -------------------------------
+    st.subheader("Explainable AI (SHAP)")
+    try:
+        explainer = shap.Explainer(model, X_test[:50])  # small sample for speed
+        shap_values = explainer(X_test[:50])
+        shap.plots.bar(shap_values, show=False)
+        st.pyplot(bbox_inches="tight")
+    except Exception as e:
+        st.warning("⚠️ SHAP explanation not available.")
+        st.text(str(e))
 
-data = data.reset_index()   # move Date into a column
-data['Date'] = pd.to_datetime(data['Date'])
-data = data.set_index('Date')
-
-# Train/test split
-train = data[:training_data_len]
-test = data[training_data_len:].copy()
-test['Predictions'] = predictions
-
-# Plot results
-plt.figure(figsize=(12,6))
-plt.plot(data.index, data['Close'], label="All Data (Train + Test)", color="green")
-plt.plot(test.index, test['Close'], label="Actual Test", color="blue")
-plt.plot(test.index, test['Predictions'], label="Predicted", color="red")
-plt.title("LSTM Stock Price Prediction (Close only)")
-plt.xlabel("Date")
-plt.ylabel("Close Price")
-plt.legend()
-plt.show()
+    # -------------------------------
+    # 7. Narrative
+    # -------------------------------
+    st.subheader("AI Narrative")
+    st.info(
+        "This LSTM model predicts only the **Close Price**. "
+        "A rising forecast compared to the historical trend suggests potential bullish momentum. "
+        "Use forecasts with caution as they depend heavily on recent price patterns."
+    )
