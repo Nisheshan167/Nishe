@@ -147,20 +147,24 @@ if st.sidebar.button("Run Prediction"):
     # -------------------------------
 st.subheader("Explainable AI (SHAP Feature Importance)")
 try:
-    # Build last sequence (same input shape as model expects)
+    # Build last sequence for explanation (shape: 1, lookback, 1)
     last_window = scaled_data[-lookback:]
-    seq = np.expand_dims(last_window, axis=0)  # (1, lookback, 1)
+    seq = np.expand_dims(last_window, axis=0)
 
-    # Use a background sample for SHAP
+    # Background = random sample from training set
     background = X_train[np.random.choice(len(X_train), size=50, replace=False)]
 
     explainer = shap.Explainer(model, background)
     shap_values = explainer(seq)
 
-    # Plot feature importance
-    fig = plt.figure()
+    # Use matplotlib figure to render in Streamlit
+    fig, ax = plt.subplots()
     shap.summary_plot(shap_values, seq, plot_type="bar", show=False)
     st.pyplot(fig)
+
+except Exception as e:
+    st.warning("⚠️ SHAP explanation not available in this environment.")
+    st.text(str(e))
 
 except Exception as e:
     st.warning("⚠️ SHAP explanation not available in this environment.")
@@ -175,6 +179,7 @@ except Exception as e:
         "A rising forecast compared to the historical trend suggests potential bullish momentum. "
         "Use forecasts with caution as they depend heavily on recent price patterns."
     )
+
 
 
 
